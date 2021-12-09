@@ -2,6 +2,7 @@ package ca.camosun.ICS226;
 
 import java.io.*;
 import java.net.*;
+import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.Scanner;
 
@@ -20,6 +21,7 @@ public class Client {
     protected final String OK_RESPONSE = "OK";
     protected final String GET_CMD = "GET";
     protected final String PUT_CMD = "PUT";
+    protected final String SALTCHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
     protected Scanner scanner = new Scanner(System.in);
 
@@ -30,26 +32,76 @@ public class Client {
         this.message = message;
     }
 
+    /*
+    #
+    # PURPOSE:
+    # Validate key length
+    #
+    # RETURN/SIDE EFFECTS:
+    # Terminates the program if validation fails
+    #
+    # NOTES:
+    # IP address and port arguments are not validated
+    #
+    */
+    protected void validateKey(){
+
+        if (key.length() != KEY_LENGTH){
+            System.err.print("Key length must be ");
+            System.err.println(KEY_LENGTH);
+            System.exit(-2);
+        }
+
+    }
+
+    /*
+    #
+    # PURPOSE:
+    # Return a random alphanumeric String of length KEY_LENGTH
+    #
+    */
     protected String getSaltString() {
-        String SALTCHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
         StringBuilder salt = new StringBuilder();
         Random rnd = new Random();
-        while (salt.length() < KEY_LENGTH) { // length of the random string.
+        while (salt.length() < KEY_LENGTH) {
             int index = (int) (rnd.nextFloat() * SALTCHARS.length());
             salt.append(SALTCHARS.charAt(index));
         }
         String saltStr = salt.toString();
         return saltStr;
-
     }
 
+    /*
+    #
+    # PURPOSE:
+    # Return a message provided by the user 
+    #
+    */
     protected String getInput(){
+
         System.out.print("Enter new message: ");
         String input = scanner.nextLine();
+        
         return input;
     }
 
-    public String sendGetRequest(){
+    /*
+    #
+    # PURPOSE:
+    # Send a GET request to the server using the latest key 
+    #
+    # PARAMETERS:
+    # 'key' is a string which is the key to be sent to the server.
+    # key is a global variable because its needed between both PUT and GET's in the main function
+    #
+    # RETURN/SIDE EFFECTS:
+    # Returns the decoded response by the server
+    #
+    # NOTES:
+    # Opens/closes a new connection to the server
+    #
+    */
+    protected String sendGetRequest(){
 
         String request;
 
@@ -60,8 +112,7 @@ public class Client {
                 new InputStreamReader(socket.getInputStream()));
         ) {
 
-            //System.out.println("[SENDING GET]");
-            request = GET_CMD.concat(key).concat("\n");
+            request = GET_CMD.concat(key);
             out.println(request);
             return in.readLine();
 
@@ -73,11 +124,24 @@ public class Client {
         return null;
     }
 
-    public void handle_get() {
-        String reply;
+    /*
+    #
+    # PURPOSE:
+    # Given a key from the command line, print all associated messages in the thread
+    # Poll the server every 5 seconds with the latest key to retrieve the latest message
+    #
+    # PARAMETERS:
+    # 'key' is a string, which is a global variable
+    # Assume the key has been validated as an 8-digit string
+    #
+    # NOTES:
+    # If there is a message returned from the server, assume that meesage consists of
+    # of an 8-digit key and a message body
+    #
+    */
+    protected void handle_get() {
         String get_result;
         String msg = "";
-        String request;
 
         while (true) {
 
@@ -112,14 +176,32 @@ public class Client {
         }
     }
 
-    public String sendPutRequest(String new_msg){
+    /*
+    #
+    # PURPOSE:
+    # Send a PUT request to the server using a given key and message 
+    # If the server responds with a 'NO' then that means that a message with the given key already exists
+    # therefore, this method retries a PUT request with the key that was returned by the server 
+    #
+    # PARAMETERS:
+    # 'key' is a string which is the key to be sent to the server.
+    # 'msg' is a string to be sent to the server
+    #
+    # RETURN/SIDE EFFECTS:
+    # Returns the decoded response by the server
+    #
+    # NOTES:
+    # Opens/closes a new connection to the server
+    # Catches NullPointerException and NoSuchElementException and General Exceptions
+    #
+    */
+    protected String sendPutRequest(String key, String new_msg){
 
         String reply;
         String next_key;
         String og_msg;
         String request;
 
-        System.out.println("[SENDING PUT]");
         og_msg = new_msg.substring(KEY_LENGTH);
         request = PUT_CMD.concat(key).concat(new_msg).concat("\n");
 
@@ -131,11 +213,12 @@ public class Client {
                 BufferedReader in = new BufferedReader(
                     new InputStreamReader(socket.getInputStream()));
             ) {
+
                     out.println(request);
                     reply = in.readLine();
                     
                     if (reply.substring(0, NO_RESPONSE.length()).equals(NO_RESPONSE)){
-                        key = reply.substring(ERROR_RESPONSE.length(), ERROR_RESPONSE.length() + KEY_LENGTH);
+                        key = reply.substring(NO_RESPONSE.length(), NO_RESPONSE.length() + KEY_LENGTH);
                         next_key = getSaltString();
                         new_msg = next_key.concat(og_msg);
                         request = PUT_CMD.concat(key).concat(new_msg).concat("\n");
@@ -143,19 +226,34 @@ public class Client {
                     else{
                         return reply;
                     }
-                
-
-            } catch (Exception e) {
+            } 
+            catch (NullPointerException e) {
+            }
+            catch (NoSuchElementException e) {
+            }
+            catch (Exception e) {
                 System.err.println(e);
                 System.exit(-1);
-                
             }
-            return null;
+            
         }
 
     }
 
-    public void handle_put() {
+    /*
+    #
+    # PURPOSE:
+    # Prompt the user for a new message. This new message will be paired with a randomly generated key
+    # The new message and key are sent to the server by a PUT request
+    #
+    # PARAMETERS:
+    # 'key' is a string, which is a global variable
+    # Assume the key has been validated as an 8-digit string
+    #
+    # NOTES:
+    #
+    */
+    protected void handle_put() {
         
         String next_key;
         String new_msg;
@@ -165,11 +263,26 @@ public class Client {
             next_key = getSaltString();
             new_msg = getInput();
             new_msg = next_key.concat(new_msg);
-            reply = sendPutRequest(new_msg);
+            reply = sendPutRequest(key, new_msg);
         }
     }
     
-    public void handle_client(){
+    /*
+    #
+    # PURPOSE:
+    # Use two threads to retrieve the latest message in a thread using a given key from the commandline and 
+    # send a new message to the server with the latest key
+    # The client does not quit
+    # initial key is validated and if it fails validation, program terminates
+    #
+    # NOTES:
+    # Each co-routine communicates the latest key by using the key as a global variable
+    #
+    */
+    protected void handle_client(){
+
+        validateKey();
+
         try {
             Runnable runnable_put = () -> this.handle_put();
             Thread t_put = new Thread(runnable_put);
@@ -179,13 +292,15 @@ public class Client {
             Thread t_get = new Thread(runnable_get);
             t_get.start();
 
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             System.err.println(e);
             System.exit(-2);
         }
     }
     
     public static void main(String[] args) {
+        
         if (args.length != 3) {
             System.err.println("Need <host> <port> <message>");
             System.exit(-2);
